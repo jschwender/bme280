@@ -1,0 +1,44 @@
+Joachim Schwender, 2019
+
+BME280
+
+Reads data from a sensor hooked on I²C bus on a raspberry pi.
+Data output can be adjusted to some degree to the needs.
+Timestamp can be included in the output.
+The programming language c was choosen as it results in small,
+fast and efficient program with small memory footprint. Depends
+only on i2c lib, math lib and basic glibc stuff.
+This makes it suitable for raspberry pi nano.
+
+The program required approximately 170 ms total time per cycle.
+In continous mode this is approximately 8 measurements per second.
+If the precision is released by reducing oversampling,
+it may result in a much higher output freqency.
+
+It can be launched by cron and output can be redirected to a file
+that can be used for exampe for gnuplot or d3. Or output may be fed
+into a monitoring software like zabbix.
+
+command line options:
+  -H   print data header
+  -h <nnn>  (optional) height in m above NN, defaults to 0 m
+  -d <device>   (optional) i2c device defaults to /dev/i2c-1
+  -2    (optional) use alternative i2c-address 0x77 instead of default 0x76
+  -f [seconds|iso|none]   timestamps in either seconds, ISO 8660 format (default) or none
+  -t [space|comma|semi]   output values with given separator (default is space)
+  -u   output unit after each value (default is no unit)
+  -c   loop endless (default one time only)
+
+
+Example output with header:
+--x--
+time temperature pressure humidity pressureNN
+2019-10-07T18:02:00 19.72 980.33 43.44 1019.83
+--x--
+
+Example output without timestamp and with header:
+--x--
+temperature pressure humidity pressureNN
+19.71 980.59 43.74 1020.10
+--x--
+

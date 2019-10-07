@@ -1,0 +1,22 @@
+Files: *
+Copyright: 2019 Joachim Schwender
+License: GPL-2
+
+    BME280  -- user program to read bme 280 sensor data over i²c bus
+    This code is not based on the BOSCH API, because i could not get
+    it to work properlly. So the code is developed based on the 
+    BOSCH data sheet.
+    Copyright ©2019 Joachim Schwender
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+The GPL is located at /usr/share/common-licenses/GPL on your Debian system.
+
