@@ -1,8 +1,9 @@
 /*
   Raspberry pi programm to get data from Bosch Sensor BME 280
-  Temperature, Pressure, Humidity and calculated pressure at NN when 
-  measurement heigth is given.
-  2019-10-04 J. Schwender
+  temperature, pressure, humidity
+  Speed of sound, saturation pressure of water, air density and 
+  pressure at NN is calculated when measurement heigth is given.
+  2019-10-04, 2020-09-20 J. Schwender
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,15 +22,13 @@ char     data[34] = {0};          // 33 raw calibration byte register 0x88…0xE
 char    config[2] = {0};          // config register values
 char device_id[2] = {0};
 int            h0 = 0;            // default altitude, override by command line
-int         units = 0,endless=0,header;  // flag to display units with the values, to loop endless
+int         units = 0,endless=0,nocr=0,header;  // flag to display units with the values, to loop endless
 int devicehandle;                 // devicehandle
 enum tformat { none, seconds, iso };
 enum tformat format=iso;
-enum sep { comma, semi, space };
-enum sep csep=space;
 time_t timestamp;                 // system time variable
 struct tm *local;                 // convert timestamp to time structure
-          double temperature, pressure, pressure_nn, humidity;           // final temperature
+          double speedofsound, taupunkt, airdensity, temperature, pressure, pressure_nn, humidity, h2o_satpressure, abshumidity;           // final temperature
   unsigned short dig_T1;          // datatypes according to data sheet!
     signed short dig_T2, dig_T3;
    unsigned char dig_H1, dig_H3;
@@ -38,6 +37,10 @@ struct tm *local;                 // convert timestamp to time structure
   unsigned short dig_P1;
     signed short dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
             long adc_p,adc_t,adc_h;
+const double Tnull = 273.15;   // -T0 in °C
+const double Rw = 461.51;  // individuelle Gaskonstante des Wassers in J/kg/K
+const double Rs = 287.058; // Gaskonstante trockener Luft in J/kg/K
+char sep =' ';
 
 void my_help(void) {
     printf("command line options:\n  -H   print data header\n  -h <nnn>  (optional) height in m above NN, defaults to 0 m\n");
@@ -46,13 +49,14 @@ void my_help(void) {
     printf("  -t [space|comma|semi]   output values with given separator (default is space)\n");
     printf("  -u   output unit after each value (default is no unit)\n");
     printf("  -c   loop endless (default one time only)\n");
+    printf("  -nocr   no cr at end of line\n");
 }
 
 void my_debug(void) {
     printf("     altitude: %i m above NN (default value)\n",h0);
     printf("     altitude: %i m above NN\n",h0);
     printf("   time format %i\n", format);
-    printf("     separator %i\n", csep);
+    printf("     separator %c\n", sep);
     printf("     use units %i\n",units);
     printf("    continuous %i\n",endless);
     printf("   i2c device: %s\n", DeviceFile);
@@ -60,25 +64,8 @@ void my_debug(void) {
 }
 
 void print_header(void) {
-    switch (format) {
-      case seconds:   printf("time"); break;
-      case iso:       printf("time"); break;
-      case none: break;
-    }
-    if ( format == none ) {
-    switch (csep) {        // print different column separators between values, depending on given command line option
-      case comma:  printf("temperature,pressure,humidity,pressureNN"); break;
-      case semi:   printf("temperature;pressure;humidity;pressureNN"); break;
-      case space:  printf("temperature pressure humidity pressureNN"); break;
-      }
-    } else {
-    switch (csep) {        // print different column separators between values, depending on given command line option
-      case comma:  printf(",temperature,pressure,humidity,pressureNN"); break;
-      case semi:   printf(";temperature;pressure;humidity;pressureNN"); break;
-      case space:  printf(" temperature pressure humidity pressureNN"); break;
-      }
-    }
-    printf("\n");
+    if ( format != none ) { printf("time%c", sep); };
+    printf("temperature%cdewpoint%cpressure%cpressureNN%chumidity%cabshumidity%cairdensity%csoundspeed\n", sep, sep, sep, sep, sep, sep, sep);
 }
 
 void print_sensor_data(void)  {    //-------- output with units and comma separator  ---------
@@ -87,35 +74,16 @@ void print_sensor_data(void)  {    //-------- output with units and comma separa
       case iso:       printf("%04d-%02d-%02dT%02d:%02d:%02d", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec);break;
       case none:      break;
       }
-    if ( format == none ) {
-        if ( units == 1 ) {
-	        switch (csep) {
-		case comma: printf("%0.2lf °C,%0.2lf hPa,%0.2lf %%,%0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		case semi:  printf("%0.2lf °C;%0.2lf hPa;%0.2lf %%;%0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		case space: printf("%0.2lf °C %0.2lf hPa %0.2lf %% %0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		}
+    if ( format != none ) { printf("%c", sep); };
+    if ( units == 1 ) {
+	    printf("%0.2lf °C%c%0.2lf °C%c%0.2lf hPa%c%0.2lf hPa(NN)%c%0.2lf %%%c%0.2lf g/m³%c%1.5lf kg/m³%c%0.2lf m/s",
+		temperature, sep, taupunkt, sep, pressure, sep, pressure_nn, sep, humidity, sep, abshumidity, sep, airdensity, sep, speedofsound);
 	} else {
-	    switch (csep) {
-		case comma: printf("%0.2lf,%0.2lf,%0.2lf,%0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		case semi:  printf("%0.2lf;%0.2lf;%0.2lf;%0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		case space: printf("%0.2lf %0.2lf %0.2lf %0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		}
+	    printf("%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.5lf%c%0.2lf",
+                temperature, sep, taupunkt, sep, pressure, sep, pressure_nn, sep, humidity, sep, abshumidity, sep, airdensity, sep, speedofsound);
         }
-    } else {
-        if ( units == 1 ) {
-	        switch (csep) {
-		case comma: printf(",%0.2lf °C,%0.2lf hPa,%0.2lf %%,%0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		case semi:  printf(";%0.2lf °C;%0.2lf hPa;%0.2lf %%;%0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		case space: printf(" %0.2lf °C %0.2lf hPa %0.2lf %% %0.2lf hPa(NN)\n", temperature, pressure, humidity, pressure_nn); break;
-		}
-	} else {
-	    switch (csep) {
-		case comma: printf(",%0.2lf,%0.2lf,%0.2lf,%0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		case semi:  printf(";%0.2lf;%0.2lf;%0.2lf;%0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		case space: printf(" %0.2lf %0.2lf %0.2lf %0.2lf\n", temperature, pressure, humidity, pressure_nn); break;
-		}
-        }
-    }
+    if ( nocr==0 ) {    printf("\n");  }
+    else {    printf(" ");  }
 }
 
 void conf_config(void) {              // config register 0xF5 values
@@ -133,7 +101,7 @@ void measurement(void) {              // both control registers 0xF2 & 0xF4
     write(devicehandle, config, 2);   // this triggers the start of measurement
 }
 
-double compensate_pressure(double raw_pressure,double temperature) {     // pressure offset calculations
+double compensate_pressure(double raw_pressure,double temperature) {     // pressure offset calculations, result in hPa
     double press1, press2, press3, result, p1quadrat;
     press1 = temperature*2560 - 64000.0;  // das hier sollte das gleiche sein
     p1quadrat = press1*press1;
@@ -155,7 +123,7 @@ double compensate_pressure(double raw_pressure,double temperature) {     // pres
     return result;
 }
 
-double compensate_humidity(long raw_humidity,double temperature) {     // compensate humidity
+double compensate_humidity(long raw_humidity,double temperature) {     // compensate humidity, result in %
     double var1, var2, var3, var4, var5, var6, result;
 
     var1 = temperature - 76800.0;
@@ -177,7 +145,7 @@ double compensate_humidity(long raw_humidity,double temperature) {     // compen
     return result;
 }
 
-double compensate_temperature(long raw_temp) {  // temperature offset calculations
+double compensate_temperature(long raw_temp) {  // temperature offset calculations, result in °C
     double temp1, temp2, temp3;
     temp1 = (((double)raw_temp)/16384.0 - ((double)dig_T1)/1024.0) * ((double)dig_T2);
     temp3 = ((double)raw_temp)/131072.0 - ((double)dig_T1)/8192.0;
@@ -185,6 +153,27 @@ double compensate_temperature(long raw_temp) {  // temperature offset calculatio
     return (temp1 + temp2)/5120.0;
 }
 
+double ftaupunkt(double hum, double Th) {  // K1 in hPa, K2 keine einheit, K3 °C
+    double K2 = 17.62, K3 = 243.12;
+    return K3 * ( (K2*Th)/(K3+Th)+log(hum/100.0) ) / ( (K2*K3)/(K3+Th)-log(hum/100.0) );     // Magnus-Formel, -45…60 °C
+}
+double fh2o_satpressure(double t) { // Sättigungsdampfdruck des Wassers in Pa, t in °C
+//    return (611.657 * exp((17.62 * t)/(243.12 + t)) ); // in Pa, einfachere Formel
+    double T = t+Tnull;  // T ist Absolute Temperatur in K
+    return (exp(-6094.4642/T+21.1249952-2.7245552/100*T+1.6853396/100000*T*T+2.4575506*log(T)) ); // das soll etwaas genauer sein. https://de.wikibooks.org/wiki/Tabellensammlung_Chemie/_Stoffdaten_Wasser#S%C3%A4ttigungsdampfdruck
+}
+double fh2o_abshumidity(double t,double hum) { // t in °C, hum in %
+    return ( 10*hum * fh2o_satpressure(t)/(Rw * (t+Tnull)) ); // in g/m³ (Faktor 10:  /100 für % und *1000 für kg --> g)
+}
+double Rf(double phi, double psat, double p) {  // phi in % (turned into /1), returns R for humid air
+    return Rs / (1 - (phi/100) * psat/p * (1 - Rs/Rw));  // psat und p in Pa, Rf in J/kg/K
+}
+double speedOfSound(double phi,double p, double psat, double t) {  // the speed of sound deppends mainly on T, only very little on humidity and pressure
+    return sqrt(1.402*Rf(phi,psat,p)*(t+Tnull));                   // 
+}
+double airDensity(double phi, double p, double psat, double t) { // phi in %, p und psat in Pa, t in °C
+    return (p / (Rf(phi,psat,p) * (t+Tnull)));   // in kg / m³
+}
 //########################################################################
 int main(int argc, char* argv[])
 {
@@ -214,11 +203,12 @@ int main(int argc, char* argv[])
      }
      if( !strcmp( argv[i], "-t" ) ) {
             if ( (i+1) >= argc ) { my_help(); exit(1);}
-	    if ( !strcmp(argv[i+1],"comma") )   { csep = comma; }
-	    if ( !strcmp(argv[i+1],"semi") )    { csep = semi;  }
-	    if ( !strcmp(argv[i+1],"space") )   { csep = space; }
+	    if ( !strcmp(argv[i+1],"comma") )   { sep = ','; }
+	    if ( !strcmp(argv[i+1],"semi") )    { sep = ';';  }
+	    if ( !strcmp(argv[i+1],"space") )   { sep = ' '; }
 	}
      if( !strcmp( argv[i], "-u" ) ) { units = 1;   } // display units
+     if( !strcmp( argv[i], "-nocr" ) ) { nocr = 1;   } // no CR at EOL
      if( !strcmp( argv[i], "-c" ) ) { endless = 1; } // don't exit the measurement & output loop
      if( !strcmp( argv[i], "-H" ) ) { header = 1;  } // must be last, depends on other options
   }
@@ -310,17 +300,18 @@ int main(int argc, char* argv[])
 #ifdef DEBUG
 	printf("%li   %li   %li  p t h raw data\n", adc_p, adc_t, adc_h);
 #endif
-	//    temperature = compensate_temperature_alt(adc_t);
-	temperature = compensate_temperature(adc_t);
-	//    pressure = compensate_pressure_alt(adc_p,temperature);
+	temperature = compensate_temperature(adc_t);         // in °C
 	pressure = compensate_pressure(adc_p,temperature);
-	pressure_nn = pressure/pow(1.0 - h0/44330.0, 5.255); // this gives the pressure at NN, calculated by given measurement height
+	pressure_nn = pressure/pow(1.0 - h0/44330.0, 5.255); // this gives the pressure at NN in hPa, calculated by given measurement height in m
 	humidity = compensate_humidity(adc_h,temperature);
+	taupunkt = ftaupunkt(humidity,temperature);          // in °C
+	h2o_satpressure = fh2o_satpressure(temperature);     // saturation pressure of water in Pa at a given temperature in °C
+	airdensity = airDensity(humidity,pressure*100,h2o_satpressure,temperature);     // function needs pressure in Pa not in hPa!
+	speedofsound = speedOfSound(humidity,pressure*100,h2o_satpressure,temperature); // function needs pressure in Pa not in hPa!
+	abshumidity = fh2o_abshumidity(temperature,humidity);     // temperatue in °C, humidity in %
 	print_sensor_data();
 	if ( endless == 0 ) { return 0; }     // loop only if endless is not set to 0
   }
   return 0;
 }
-
-
 
