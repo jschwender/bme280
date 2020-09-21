@@ -41,6 +41,7 @@ const double Tnull = 273.15;   // -T0 in °C
 const double Rw = 461.51;  // individuelle Gaskonstante des Wassers in J/kg/K
 const double Rs = 287.058; // Gaskonstante trockener Luft in J/kg/K
 char sep =' ';
+int verb = 1;   // default value for verbosity
 
 void my_help(void) {
     printf("command line options:\n  -H   print data header\n  -h <nnn>  (optional) height in m above NN, defaults to 0 m\n");
@@ -49,7 +50,10 @@ void my_help(void) {
     printf("  -t [space|comma|semi]   output values with given separator (default is space)\n");
     printf("  -u   output unit after each value (default is no unit)\n");
     printf("  -c   loop endless (default one time only)\n");
-    printf("  -nocr   no cr at end of line\n");
+    printf("  -nocr   no cr at end of data line\n");
+    printf("  -v1     only temperature,presure and humidity '(default)\n");
+    printf("  -v2     v1 values + dew point, pressureNN, abs. humidity\n");
+    printf("  -v3     v2 values + airdensity, speed of sound\n");
 }
 
 void my_debug(void) {
@@ -65,25 +69,49 @@ void my_debug(void) {
 
 void print_header(void) {
     if ( format != none ) { printf("time%c", sep); };
-    printf("temperature%cdewpoint%cpressure%cpressureNN%chumidity%cabshumidity%cairdensity%csoundspeed\n", sep, sep, sep, sep, sep, sep, sep);
+    printf("temperature%cpressure%chumidity", sep, sep);
+    if (verb >=2) { printf("%cdewpoint%cpressureNN%cabshumidity", sep, sep, sep); };
+    if (verb >=3) { printf("%cairdensity%csoundspeed", sep, sep); };
+    printf("\n");
 }
 
 void print_sensor_data(void)  {    //-------- output with units and comma separator  ---------
     switch (format) {
-      case seconds:   printf("%li", timestamp);break;
-      case iso:       printf("%04d-%02d-%02dT%02d:%02d:%02d", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec);break;
+      case seconds:   printf("%li%c", timestamp,sep);break;
+      case iso:       printf("%04d-%02d-%02dT%02d:%02d:%02d%c", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec,sep);break;
       case none:      break;
       }
-    if ( format != none ) { printf("%c", sep); };
-    if ( units == 1 ) {
-	    printf("%0.2lf °C%c%0.2lf °C%c%0.2lf hPa%c%0.2lf hPa(NN)%c%0.2lf %%%c%0.2lf g/m³%c%1.5lf kg/m³%c%0.2lf m/s",
-		temperature, sep, taupunkt, sep, pressure, sep, pressure_nn, sep, humidity, sep, abshumidity, sep, airdensity, sep, speedofsound);
+    switch (verb) {
+    case 1:          // only basic values
+        if ( units == 1 ) {
+	    printf("%0.2lf °C%c%0.2lf hPa%c%0.2lf %%s",
+		temperature, sep,  pressure, sep, humidity);
+	} else {
+	    printf("%0.2lf%c%0.2lf%c%0.2lf",
+                temperature, sep, pressure, sep, humidity);
+        }
+	break;
+    case 2:
+        if ( units == 1 ) {
+	    printf("%0.2lf °C%c%0.2lf hPa%c%0.2lf%%%c%0.2lf °C%c%0.2lf hPa(NN)%c%0.2lf g/m³",
+		temperature, sep, pressure, sep, humidity, sep, taupunkt, sep, pressure_nn, sep, abshumidity);
+	} else {
+	    printf("%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf",
+		temperature, sep, pressure, sep, humidity, sep, taupunkt, sep, pressure_nn, sep, abshumidity);
+        }
+	break;
+    case 3:
+        if ( units == 1 ) {
+	    printf("%0.2lf °C%c%0.2lf hPa%c%0.2lf%%%c%0.2lf °C%c%0.2lf hPa(NN)%c%0.2lf g/m³%c%1.5lf kg/m³%c%0.2lf m/s",
+		temperature, sep, pressure, sep, humidity, sep, taupunkt, sep, pressure_nn, sep, abshumidity, sep, airdensity, sep, speedofsound);
 	} else {
 	    printf("%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.2lf%c%0.5lf%c%0.2lf",
-                temperature, sep, taupunkt, sep, pressure, sep, pressure_nn, sep, humidity, sep, abshumidity, sep, airdensity, sep, speedofsound);
+                temperature, sep, taupunkt, sep, pressure, sep, taupunkt, sep, pressure_nn, sep, abshumidity, sep, airdensity, sep, speedofsound);
         }
+	break;
+    } // (verb)
     if ( nocr==0 ) {    printf("\n");  }
-    else {    printf(" ");  }
+    else {    printf("%c",sep);  }
 }
 
 void conf_config(void) {              // config register 0xF5 values
@@ -211,6 +239,9 @@ int main(int argc, char* argv[])
      if( !strcmp( argv[i], "-nocr" ) ) { nocr = 1;   } // no CR at EOL
      if( !strcmp( argv[i], "-c" ) ) { endless = 1; } // don't exit the measurement & output loop
      if( !strcmp( argv[i], "-H" ) ) { header = 1;  } // must be last, depends on other options
+     if( !strcmp( argv[i], "-v1" ) ) { verb = 1;  } // 
+     if( !strcmp( argv[i], "-v2" ) ) { verb = 2;  } // 
+     if( !strcmp( argv[i], "-v3" ) ) { verb = 3;  } // 
   }
 
   if((devicehandle = open(DeviceFile, O_RDWR)) < 0) {
@@ -314,4 +345,3 @@ int main(int argc, char* argv[])
   }
   return 0;
 }
-
